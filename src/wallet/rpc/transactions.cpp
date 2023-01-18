@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2021 The Bitcoin Core developers
+// Copyright (c) 2011-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -316,7 +316,7 @@ static void MaybePushAddress(UniValue & entry, const CTxDestination &dest)
  */
 template <class Vec>
 static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nMinDepth, bool fLong,
-                             Vec& ret, const isminefilter& filter_ismine, const std::string* filter_label,
+                             Vec& ret, const isminefilter& filter_ismine, const std::optional<std::string>& filter_label,
                              bool include_change = false)
     EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
 {
@@ -329,7 +329,7 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
     bool involvesWatchonly = CachedTxIsFromMe(wallet, wtx, ISMINE_WATCH_ONLY);
 
     // Sent
-    if (!filter_label)
+    if (!filter_label.has_value())
     {
         for (const COutputEntry& s : listSent)
         {
@@ -362,7 +362,7 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
             if (address_book_entry) {
                 label = address_book_entry->GetLabel();
             }
-            if (filter_label && label != *filter_label) {
+            if (filter_label.has_value() && label != filter_label.value()) {
                 continue;
             }
             UniValue entry(UniValue::VOBJ);
@@ -416,7 +416,6 @@ static const std::vector<RPCResult> TransactionDescriptionString()
            }},
            {RPCResult::Type::STR_HEX, "replaced_by_txid", /*optional=*/true, "The txid if this tx was replaced."},
            {RPCResult::Type::STR_HEX, "replaces_txid", /*optional=*/true, "The txid if the tx replaces one."},
-           {RPCResult::Type::STR, "comment", /*optional=*/true, ""},
            {RPCResult::Type::STR, "to", /*optional=*/true, "If a comment to is associated with the transaction."},
            {RPCResult::Type::NUM_TIME, "time", "The transaction time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::NUM_TIME, "timereceived", "The time received expressed in " + UNIX_EPOCH_TIME + "."},
@@ -485,10 +484,10 @@ RPCHelpMan listtransactions()
     // the user could have gotten from another RPC command prior to now
     pwallet->BlockUntilSyncedToCurrentChain();
 
-    const std::string* filter_label = nullptr;
+    std::optional<std::string> filter_label;
     if (!request.params[0].isNull() && request.params[0].get_str() != "*") {
-        filter_label = &request.params[0].get_str();
-        if (filter_label->empty()) {
+        filter_label.emplace(LabelFromValue(request.params[0]));
+        if (filter_label.value().empty()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Label argument must be a valid label name or \"*\".");
         }
     }
@@ -552,6 +551,7 @@ RPCHelpMan listsinceblock()
                     {"include_removed", RPCArg::Type::BOOL, RPCArg::Default{true}, "Show transactions that were removed due to a reorg in the \"removed\" array\n"
                                                                        "(not guaranteed to work on pruned nodes)"},
                     {"include_change", RPCArg::Type::BOOL, RPCArg::Default{false}, "Also add entries for change outputs.\n"},
+                    {"label", RPCArg::Type::STR, RPCArg::Optional::OMITTED_NAMED_ARG, "Return only incoming transactions paying to addresses with the specified label.\n"},
                 },
                 RPCResult{
                     RPCResult::Type::OBJ, "", "",
@@ -614,7 +614,7 @@ RPCHelpMan listsinceblock()
         blockId = ParseHashV(request.params[0], "blockhash");
         height = int{};
         altheight = int{};
-        if (!wallet.chain().findCommonAncestor(blockId, wallet.GetLastBlockHash(), /* ancestor out */ FoundBlock().height(*height), /* blockId out */ FoundBlock().height(*altheight))) {
+        if (!wallet.chain().findCommonAncestor(blockId, wallet.GetLastBlockHash(), /*ancestor_out=*/FoundBlock().height(*height), /*block1_out=*/FoundBlock().height(*altheight))) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
         }
     }
@@ -634,6 +634,10 @@ RPCHelpMan listsinceblock()
     bool include_removed = (request.params[3].isNull() || request.params[3].get_bool());
     bool include_change = (!request.params[4].isNull() && request.params[4].get_bool());
 
+    // Only set it if 'label' was provided.
+    std::optional<std::string> filter_label;
+    if (!request.params[5].isNull()) filter_label.emplace(LabelFromValue(request.params[5]));
+
     int depth = height ? wallet.GetLastBlockHeight() + 1 - *height : -1;
 
     UniValue transactions(UniValue::VARR);
@@ -642,7 +646,7 @@ RPCHelpMan listsinceblock()
         const CWalletTx& tx = pairWtx.second;
 
         if (depth == -1 || abs(wallet.GetTxDepthInMainChain(tx)) < depth) {
-            ListTransactions(wallet, tx, 0, true, transactions, filter, nullptr /* filter_label */, /*include_change=*/include_change);
+            ListTransactions(wallet, tx, 0, true, transactions, filter, filter_label, include_change);
         }
     }
 
@@ -659,7 +663,7 @@ RPCHelpMan listsinceblock()
             if (it != wallet.mapWallet.end()) {
                 // We want all transactions regardless of confirmation count to appear here,
                 // even negative confirmation ones, hence the big negative.
-                ListTransactions(wallet, it->second, -100000000, true, removed, filter, nullptr /* filter_label */, /*include_change=*/include_change);
+                ListTransactions(wallet, it->second, -100000000, true, removed, filter, filter_label, include_change);
             }
         }
         blockId = block.hashPrevBlock;
@@ -777,7 +781,7 @@ RPCHelpMan gettransaction()
     WalletTxToJSON(*pwallet, wtx, entry);
 
     UniValue details(UniValue::VARR);
-    ListTransactions(*pwallet, wtx, 0, false, details, filter, nullptr /* filter_label */);
+    ListTransactions(*pwallet, wtx, 0, false, details, filter, /*filter_label=*/std::nullopt);
     entry.pushKV("details", details);
 
     std::string strHex = EncodeHexTx(*wtx.tx, pwallet->chain().rpcSerializationFlags());
@@ -839,7 +843,9 @@ RPCHelpMan rescanblockchain()
 {
     return RPCHelpMan{"rescanblockchain",
                 "\nRescan the local blockchain for wallet related transactions.\n"
-                "Note: Use \"getwalletinfo\" to query the scanning progress.\n",
+                "Note: Use \"getwalletinfo\" to query the scanning progress.\n"
+                "The rescan is significantly faster when used on a descriptor wallet\n"
+                "and block filters are available (using startup option \"-blockfilterindex=1\").\n",
                 {
                     {"start_height", RPCArg::Type::NUM, RPCArg::Default{0}, "block height where the rescan should start"},
                     {"stop_height", RPCArg::Type::NUM, RPCArg::Optional::OMITTED_NAMED_ARG, "the last block height that should be scanned. If none is provided it will rescan up to the tip at return time of this call."},

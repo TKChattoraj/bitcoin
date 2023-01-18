@@ -53,7 +53,10 @@ class TxPrivacyTest(BitcoinTestFramework):
 
     def run_test(self):
         self.wallet = MiniWallet(self.nodes[0])
+<<<<<<< HEAD
         self.wallet.rescan_utxos()
+=======
+>>>>>>> master
 
         tx_originator = self.nodes[0].add_p2p_connection(P2PInterface())
         spy = self.nodes[0].add_p2p_connection(P2PTxSpy(), wait_for_verack=False)

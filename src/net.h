@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2021 The Bitcoin Core developers
+// Copyright (c) 2009-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -24,10 +24,10 @@
 #include <span.h>
 #include <streams.h>
 #include <sync.h>
-#include <threadinterrupt.h>
 #include <uint256.h>
 #include <util/check.h>
 #include <util/sock.h>
+#include <util/threadinterrupt.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -378,8 +378,6 @@ public:
     std::list<CNetMessage> vProcessMsg GUARDED_BY(cs_vProcessMsg);
     size_t nProcessQueueSize GUARDED_BY(cs_vProcessMsg){0};
 
-    RecursiveMutex cs_sendProcessing;
-
     uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
 
     std::atomic<std::chrono::seconds> m_last_send{0s};
@@ -491,10 +489,8 @@ public:
     /** Whether this peer provides all services that we want. Used for eviction decisions */
     std::atomic_bool m_has_all_wanted_services{false};
 
-    /** Whether we should relay transactions to this peer (their version
-     *  message did not include fRelay=false and this is not a block-relay-only
-     *  connection). This only changes from false to true. It will never change
-     *  back to false. Used only in inbound eviction logic. */
+    /** Whether we should relay transactions to this peer. This only changes
+     * from false to true. It will never change back to false. */
     std::atomic_bool m_relays_txs{false};
 
     /** Whether this peer has loaded a bloom filter. Used only in inbound
@@ -630,6 +626,9 @@ private:
 class NetEventsInterface
 {
 public:
+    /** Mutex for anything that is only accessed via the msg processing thread */
+    static Mutex g_msgproc_mutex;
+
     /** Initialize a peer (setup state, queue any initial messages) */
     virtual void InitializeNode(CNode& node, ServiceFlags our_services) = 0;
 
@@ -643,7 +642,7 @@ public:
     * @param[in]   interrupt       Interrupt condition for processing threads
     * @return                      True if there is more work to be done
     */
-    virtual bool ProcessMessages(CNode* pnode, std::atomic<bool>& interrupt) = 0;
+    virtual bool ProcessMessages(CNode* pnode, std::atomic<bool>& interrupt) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex) = 0;
 
     /**
     * Send queued protocol messages to a given node.
@@ -651,7 +650,7 @@ public:
     * @param[in]   pnode           The node which we are sending messages to.
     * @return                      True if there is more work to be done
     */
-    virtual bool SendMessages(CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(pnode->cs_sendProcessing) = 0;
+    virtual bool SendMessages(CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex) = 0;
 
 
 protected:

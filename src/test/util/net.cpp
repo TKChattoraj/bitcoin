@@ -1,4 +1,4 @@
-// Copyright (c) 2020-2021 The Bitcoin Core developers
+// Copyright (c) 2020-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -44,10 +44,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
     (void)connman.ReceiveMsgFrom(node, msg_version);
     node.fPauseSend = false;
     connman.ProcessMessagesOnce(node);
-    {
-        LOCK(node.cs_sendProcessing);
-        peerman.SendMessages(&node);
-    }
+    peerman.SendMessages(&node);
     if (node.fDisconnect) return;
     assert(node.nVersion == version);
     assert(node.GetCommonVersion() == std::min(version, PROTOCOL_VERSION));
@@ -60,10 +57,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
         (void)connman.ReceiveMsgFrom(node, msg_verack);
         node.fPauseSend = false;
         connman.ProcessMessagesOnce(node);
-        {
-            LOCK(node.cs_sendProcessing);
-            peerman.SendMessages(&node);
-        }
+        peerman.SendMessages(&node);
         assert(node.fSuccessfullyConnected == true);
     }
 }

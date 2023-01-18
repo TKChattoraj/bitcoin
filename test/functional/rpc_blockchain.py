@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2014-2021 The Bitcoin Core developers
+# Copyright (c) 2014-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test RPCs related to blockchainstate.
@@ -89,6 +89,7 @@ class BlockchainTest(BitcoinTestFramework):
         self._test_waitforblockheight()
         self._test_getblock()
         self._test_getdeploymentinfo()
+        self._test_y2106()
         assert self.nodes[0].verifychain(4, 0)
 
     def mine_chain(self):
@@ -255,6 +256,14 @@ class BlockchainTest(BitcoinTestFramework):
         # calling with an explicit hash works
         self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(gbci207["bestblockhash"]), gbci207["blocks"], gbci207["bestblockhash"], "started")
 
+    def _test_y2106(self):
+        self.log.info("Check that block timestamps work until year 2106")
+        self.generate(self.nodes[0], 8)[-1]
+        time_2106 = 2**32 - 1
+        self.nodes[0].setmocktime(time_2106)
+        last = self.generate(self.nodes[0], 6)[-1]
+        assert_equal(self.nodes[0].getblockheader(last)["mediantime"], time_2106)
+
     def _test_getchaintxstats(self):
         self.log.info("Test getchaintxstats")
 
@@ -262,12 +271,12 @@ class BlockchainTest(BitcoinTestFramework):
         assert_raises_rpc_error(-1, 'getchaintxstats', self.nodes[0].getchaintxstats, 0, '', 0)
 
         # Test `getchaintxstats` invalid `nblocks`
-        assert_raises_rpc_error(-1, "JSON value of type string is not of expected type number", self.nodes[0].getchaintxstats, '')
+        assert_raises_rpc_error(-3, "JSON value of type string is not of expected type number", self.nodes[0].getchaintxstats, '')
         assert_raises_rpc_error(-8, "Invalid block count: should be between 0 and the block's height - 1", self.nodes[0].getchaintxstats, -1)
         assert_raises_rpc_error(-8, "Invalid block count: should be between 0 and the block's height - 1", self.nodes[0].getchaintxstats, self.nodes[0].getblockcount())
 
         # Test `getchaintxstats` invalid `blockhash`
-        assert_raises_rpc_error(-1, "JSON value of type number is not of expected type string", self.nodes[0].getchaintxstats, blockhash=0)
+        assert_raises_rpc_error(-3, "JSON value of type number is not of expected type string", self.nodes[0].getchaintxstats, blockhash=0)
         assert_raises_rpc_error(-8, "blockhash must be of length 64 (not 1, for '0')", self.nodes[0].getchaintxstats, blockhash='0')
         assert_raises_rpc_error(-8, "blockhash must be hexadecimal string (not 'ZZZ0000000000000000000000000000000000000000000000000000000000000')", self.nodes[0].getchaintxstats, blockhash='ZZZ0000000000000000000000000000000000000000000000000000000000000')
         assert_raises_rpc_error(-5, "Block not found", self.nodes[0].getchaintxstats, blockhash='0000000000000000000000000000000000000000000000000000000000000000')
@@ -361,7 +370,7 @@ class BlockchainTest(BitcoinTestFramework):
         # hash_type muhash should return a different UTXO set hash.
         res6 = node.gettxoutsetinfo(hash_type='muhash')
         assert 'muhash' in res6
-        assert(res['hash_serialized_2'] != res6['muhash'])
+        assert res['hash_serialized_2'] != res6['muhash']
 
         # muhash should not be returned unless requested.
         for r in [res, res2, res3, res4, res5]:
@@ -547,7 +556,7 @@ class BlockchainTest(BitcoinTestFramework):
         datadir = get_datadir_path(self.options.tmpdir, 0)
 
         self.log.info("Test getblock with invalid verbosity type returns proper error message")
-        assert_raises_rpc_error(-1, "JSON value of type string is not of expected type number", node.getblock, blockhash, "2")
+        assert_raises_rpc_error(-3, "JSON value of type string is not of expected type number", node.getblock, blockhash, "2")
 
         def move_block_file(old, new):
             old_path = os.path.join(datadir, self.chain, 'blocks', old)
